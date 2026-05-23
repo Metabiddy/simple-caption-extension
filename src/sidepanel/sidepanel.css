@@ -224,6 +224,14 @@ body {
   border-color: #3b82f6;
 }
 
+.current-cue-time {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7dd3fc;
+  font-variant-numeric: tabular-nums;
+}
+
 .cue-meta {
   margin: 0 0 6px;
   font-size: 11px;
@@ -253,6 +261,11 @@ body {
 .cue-item.active {
   background: #1e3a5f;
   border-left-color: #3b82f6;
+}
+
+.cue-item.active-next {
+  border-left-color: #93c5fd;
+  background: #1a2f4a;
 }
 
 .cue-time {

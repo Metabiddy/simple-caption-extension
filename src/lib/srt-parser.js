@@ -103,7 +103,35 @@ function findActiveCueIndex(cues, effectiveTime) {
   return -1;
 }
 
+/**
+ * First cue whose start is strictly after effectiveTime; if none, last cue.
+ * @param {Array<{ startSec: number }>} cues
+ * @param {number} effectiveTime
+ * @returns {number} index or -1
+ */
+function findNextCueIndex(cues, effectiveTime) {
+  if (!cues || cues.length === 0) return -1;
+
+  let lo = 0;
+  let hi = cues.length - 1;
+  let result = -1;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cues[mid].startSec > effectiveTime) {
+      result = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+
+  if (result >= 0) return result;
+  return cues.length - 1;
+}
+
 if (typeof globalThis !== 'undefined') {
   globalThis.parseSrt = parseSrt;
   globalThis.findActiveCueIndex = findActiveCueIndex;
+  globalThis.findNextCueIndex = findNextCueIndex;
 }

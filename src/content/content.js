@@ -104,6 +104,47 @@
     return { ...state, bilibiliMode, offsetSec };
   }
 
+  /** @param {HTMLVideoElement | null} video */
+  function computeCueSync(video) {
+    const effectiveTime =
+      video && cues.length ? video.currentTime - offsetSec : 0;
+    const activeIndex =
+      video && cues.length ? findActiveCueIndex(cues, effectiveTime) : -1;
+    const activeCueStartSec =
+      activeIndex >= 0 ? cues[activeIndex].startSec : -1;
+    const nextIndex =
+      activeIndex < 0 && cues.length
+        ? findNextCueIndex(cues, effectiveTime)
+        : -1;
+    const locateCueStartSec =
+      activeCueStartSec >= 0
+        ? activeCueStartSec
+        : nextIndex >= 0
+          ? cues[nextIndex].startSec
+          : -1;
+    return { activeIndex, activeCueStartSec, effectiveTime, locateCueStartSec };
+  }
+
+  /** @param {boolean} [includeCues] */
+  function buildPlaybackState(includeCues) {
+    const video = getVideo() || findActiveVideo();
+    const { activeIndex, activeCueStartSec, effectiveTime, locateCueStartSec } =
+      computeCueSync(video);
+    const state = {
+      currentTime: video ? video.currentTime : 0,
+      paused: video ? video.paused : true,
+      activeIndex,
+      activeCueStartSec,
+      effectiveTime,
+      locateCueStartSec,
+      cueCount: cues.length,
+    };
+    if (includeCues) {
+      state.cues = cuesPayload();
+    }
+    return withMode(state);
+  }
+
   /** @param {object} state @param {boolean} [includeCues] */
   function broadcastState(state, includeCues) {
     const payload = {
@@ -146,18 +187,8 @@
         sendStatus(true, null, cues.length);
       }
 
-      const video = getVideo();
       broadcastState(
-        renderer
-          ? renderer.getState()
-          : {
-              currentTime: video ? video.currentTime : 0,
-              paused: video ? video.paused : true,
-              activeIndex: video
-                ? findActiveCueIndex(cues, video.currentTime - offsetSec)
-                : -1,
-              cueCount: cues.length,
-            },
+        renderer ? renderer.getState() : buildPlaybackState(false),
         true
       );
       return true;
@@ -191,6 +222,9 @@
       offsetSec: 0,
       bilibiliMode: false,
       activeIndex: -1,
+      activeCueStartSec: -1,
+      effectiveTime: 0,
+      locateCueStartSec: -1,
       cueCount: 0,
       cues: [],
     }).catch(() => {});
@@ -202,7 +236,8 @@
       sendStatus(false, 'No video found on this page.');
       return;
     }
-    video.currentTime = Math.max(0, startSec);
+    const targetTime = startSec + offsetSec;
+    video.currentTime = Math.max(0, targetTime);
     if (renderer) renderer.refresh();
     broadcastState(renderer ? renderer.getState() : {});
   }
@@ -228,16 +263,7 @@
   function setBilibiliMode(enabled) {
     bilibiliMode = Boolean(enabled);
     persistSettings();
-    broadcastState(
-      renderer
-        ? renderer.getState()
-        : {
-            currentTime: getVideo()?.currentTime ?? 0,
-            paused: getVideo()?.paused ?? true,
-            activeIndex: -1,
-            cueCount: cues.length,
-          }
-    );
+    broadcastState(renderer ? renderer.getState() : buildPlaybackState(false));
   }
 
   function setOffset(sec) {
@@ -248,33 +274,16 @@
     } else {
       chrome.runtime.sendMessage({
         type: MSG.SUBTITLE_STATE,
-        offsetSec,
-        bilibiliMode,
-        activeIndex: -1,
-        cueCount: cues.length,
-        cues: cues.length > 0 ? cuesPayload() : [],
+        ...buildPlaybackState(cues.length > 0),
       }).catch(() => {});
     }
     persistSettings();
   }
 
   function replyState() {
-    const video = getVideo();
-    if (renderer && video) {
-      broadcastState(renderer.getState(), true);
-      return;
-    }
-
-    chrome.runtime.sendMessage({
-      type: MSG.SUBTITLE_STATE,
-      currentTime: video ? video.currentTime : 0,
-      paused: video ? video.paused : true,
-      offsetSec,
-      bilibiliMode,
-      activeIndex: video ? findActiveCueIndex(cues, video.currentTime - offsetSec) : -1,
-      cueCount: cues.length,
-      cues: cuesPayload(),
-    }).catch(() => {});
+    const state = buildPlaybackState(true);
+    broadcastState(state, true);
+    return state;
   }
 
   async function restoreFromStorage() {
@@ -325,8 +334,7 @@
         sendResponse({ ok: true });
         break;
       case MSG.SUBTITLE_GET_STATE:
-        replyState();
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, ...replyState() });
         break;
       default:
         break;

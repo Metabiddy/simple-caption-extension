@@ -14,16 +14,23 @@
   const bilibiliModeToggle = document.getElementById('bilibiliModeToggle');
   const bilibiliModeHint = document.getElementById('bilibiliModeHint');
   const locateCueBtn = document.getElementById('locateCueBtn');
+  const currentCueTimeEl = document.getElementById('currentCueTime');
 
   /** @type {Array<{ index: number, startSec: number, endSec: number, preview: string }>} */
   let allCues = [];
   let offsetSec = 0;
   let bilibiliMode = false;
   let activeIndex = -1;
-  let lastScrolledIndex = -1;
+  /** SRT timestamp (seconds) of the cue currently on screen */
+  let activeCueStartSec = -1;
+  /** Aligned timeline position: player time − delay */
+  let effectiveTime = 0;
+  /** Scroll/highlight target: active cue, or next cue after effectiveTime */
+  let locateCueStartSec = -1;
+  let lastScrolledStartSec = -1;
   let offsetInputFocused = false;
 
-  const HINT_NORMAL = 'Click a cue to jump the video';
+  const HINT_NORMAL = 'Click a cue to jump (player time = subtitle time + delay)';
   const HINT_BILIBILI = 'Click a cue to sync subtitles to current playback (no seek)';
 
   async function getActiveTabId() {
@@ -55,6 +62,55 @@
     const m = Math.floor(s / 60);
     const r = s % 60;
     return `${m}:${String(r).padStart(2, '0')}`;
+  }
+
+  function formatSubtitleTimestamp(sec) {
+    if (!Number.isFinite(sec)) return '—';
+    const sign = sec < 0 ? '-' : '';
+    const abs = Math.abs(sec);
+    const h = Math.floor(abs / 3600);
+    const m = Math.floor((abs % 3600) / 60);
+    const s = Math.floor(abs % 60);
+    const ms = Math.round((abs % 1) * 1000);
+    const pad = (n, len = 2) => String(n).padStart(len, '0');
+    if (h > 0) {
+      return `${sign}${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+    }
+    return `${sign}${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+  }
+
+  function updateCurrentCueTimeDisplay() {
+    if (allCues.length === 0) {
+      currentCueTimeEl.textContent = 'Subtitle time: —';
+      return;
+    }
+    const displaySec =
+      activeCueStartSec >= 0 ? activeCueStartSec : effectiveTime;
+    const noCue = activeCueStartSec < 0;
+    currentCueTimeEl.textContent = noCue
+      ? `Subtitle time: ${formatSubtitleTimestamp(displaySec)} (no cue)`
+      : `Subtitle time: ${formatSubtitleTimestamp(displaySec)}`;
+  }
+
+  function cueStartMatches(a, b) {
+    return Math.abs(a - b) < 0.001;
+  }
+
+  function findCueListItemByStartSec(startSec) {
+    if (startSec < 0) return null;
+    for (const el of cueList.querySelectorAll('.cue-item')) {
+      const t = parseFloat(el.dataset.startSec);
+      if (cueStartMatches(t, startSec)) return el;
+    }
+    return null;
+  }
+
+  function resolveLocateStartSec() {
+    if (locateCueStartSec >= 0) return locateCueStartSec;
+    if (activeCueStartSec >= 0) return activeCueStartSec;
+    if (!allCues.length || !globalThis.findNextCueIndex) return -1;
+    const idx = findNextCueIndex(allCues, effectiveTime);
+    return idx >= 0 ? allCues[idx].startSec : -1;
   }
 
   function syncOffsetInputFromState() {
@@ -127,9 +183,10 @@
       li.dataset.index = String(cue.index - 1);
       li.dataset.startSec = String(cue.startSec);
 
-      const realIndex = cue.index - 1;
-      if (realIndex === activeIndex) {
+      const locateSec = resolveLocateStartSec();
+      if (locateSec >= 0 && cueStartMatches(cue.startSec, locateSec)) {
         li.classList.add('active');
+        if (activeCueStartSec < 0) li.classList.add('active-next');
       }
 
       li.innerHTML = `
@@ -151,29 +208,44 @@
     return div.innerHTML;
   }
 
-  function scrollActiveIntoView(force) {
-    if (activeIndex < 0) {
-      setStatus('No active subtitle at current time.', true);
+  function scrollToLocateTarget(force) {
+    const targetSec = resolveLocateStartSec();
+    if (targetSec < 0) {
+      setStatus('No subtitle cues loaded.', true);
       return;
     }
-    if (!force && activeIndex === lastScrolledIndex) return;
+    if (!force && cueStartMatches(targetSec, lastScrolledStartSec)) return;
 
-    const activeEl = cueList.querySelector(`[data-index="${activeIndex}"]`);
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      lastScrolledIndex = activeIndex;
-      setStatus(`Located cue #${activeIndex + 1}.`);
+    const el = findCueListItemByStartSec(targetSec);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: force ? 'smooth' : 'auto' });
+      lastScrolledStartSec = targetSec;
+      const idx = parseInt(el.dataset.index, 10);
+      const isNext = activeCueStartSec < 0;
+      setStatus(
+        isNext
+          ? `Located next cue #${idx + 1} at ${formatSubtitleTimestamp(targetSec)}.`
+          : `Located #${idx + 1} at ${formatSubtitleTimestamp(targetSec)}.`
+      );
     } else if (searchInput.value.trim()) {
-      setStatus('Current cue is hidden by search — clear search and try again.', true);
+      setStatus('Cue is hidden by search — clear search and try again.', true);
     } else {
-      setStatus('Could not find current cue in list.', true);
+      setStatus('Could not find cue in list.', true);
     }
   }
 
-  function locateCurrentCue() {
-    lastScrolledIndex = -1;
+  async function locateCurrentCue() {
+    const res = await sendToContent({ type: MSG.SUBTITLE_GET_STATE });
+    if (res && typeof res.activeCueStartSec === 'number') {
+      applyState(res);
+    }
+    lastScrolledStartSec = -1;
+    if (searchInput.value.trim()) {
+      searchInput.value = '';
+      renderCueList();
+    }
     highlightActive();
-    scrollActiveIntoView(true);
+    scrollToLocateTarget(true);
   }
 
   function applyState(state) {
@@ -182,9 +254,25 @@
       syncOffsetInputFromState();
     }
     if (typeof state.activeIndex === 'number') {
-      const indexChanged = state.activeIndex !== activeIndex;
       activeIndex = state.activeIndex;
-      if (indexChanged) lastScrolledIndex = -1;
+    }
+    if (typeof state.effectiveTime === 'number') {
+      effectiveTime = state.effectiveTime;
+    }
+    if (typeof state.activeCueStartSec === 'number') {
+      activeCueStartSec = state.activeCueStartSec;
+    }
+    if (typeof state.locateCueStartSec === 'number') {
+      const locateChanged = state.locateCueStartSec !== locateCueStartSec;
+      locateCueStartSec = state.locateCueStartSec;
+      if (locateChanged) lastScrolledStartSec = -1;
+    }
+    if (
+      typeof state.effectiveTime === 'number' ||
+      typeof state.activeCueStartSec === 'number' ||
+      typeof state.locateCueStartSec === 'number'
+    ) {
+      updateCurrentCueTimeDisplay();
     }
     if (typeof state.bilibiliMode === 'boolean') {
       bilibiliMode = state.bilibiliMode;
@@ -202,15 +290,26 @@
     }
     if (cuesChanged) {
       renderCueList();
+      highlightActive();
+      autoScrollToLocateTarget();
     } else {
       highlightActive();
+      autoScrollToLocateTarget();
     }
   }
 
+  function autoScrollToLocateTarget() {
+    if (allCues.length === 0) return;
+    scrollToLocateTarget(false);
+  }
+
   function highlightActive() {
+    const locateSec = resolveLocateStartSec();
     cueList.querySelectorAll('.cue-item').forEach((el) => {
-      const idx = parseInt(el.dataset.index, 10);
-      el.classList.toggle('active', idx === activeIndex);
+      const startSec = parseFloat(el.dataset.startSec);
+      const isLocate = locateSec >= 0 && cueStartMatches(startSec, locateSec);
+      el.classList.toggle('active', isLocate);
+      el.classList.toggle('active-next', isLocate && activeCueStartSec < 0);
     });
   }
 
@@ -228,8 +327,13 @@
     await sendToContent({ type: MSG.SUBTITLE_CLEAR });
     allCues = [];
     activeIndex = -1;
+    activeCueStartSec = -1;
+    effectiveTime = 0;
+    locateCueStartSec = -1;
+    lastScrolledStartSec = -1;
     offsetSec = 0;
     syncOffsetInputFromState();
+    updateCurrentCueTimeDisplay();
     renderCueList();
     setStatus('Cleared.');
   });
@@ -267,7 +371,7 @@
   });
 
   searchInput.addEventListener('input', () => {
-    lastScrolledIndex = -1;
+    lastScrolledStartSec = -1;
     renderCueList();
     highlightActive();
   });
@@ -352,7 +456,9 @@
   });
 
   (async function init() {
+    updateCurrentCueTimeDisplay();
     await restoreSidepanelFromStorage();
-    await sendToContent({ type: MSG.SUBTITLE_GET_STATE });
+    const res = await sendToContent({ type: MSG.SUBTITLE_GET_STATE });
+    if (res) applyState(res);
   })();
 })();

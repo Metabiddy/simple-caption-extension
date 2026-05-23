@@ -139,14 +139,30 @@ class SubtitleRenderer {
     this._emitState(false);
   }
 
-  /** @returns {{ currentTime: number, paused: boolean, offsetSec: number, activeIndex: number }} */
+  /** @returns {{ currentTime: number, paused: boolean, offsetSec: number, activeIndex: number, activeCueStartSec: number, effectiveTime: number, locateCueStartSec: number }} */
   getState() {
     const effectiveTime = this.video.currentTime - this.offsetSec;
+    const activeIndex = findActiveCueIndex(this.cues, effectiveTime);
+    const activeCueStartSec =
+      activeIndex >= 0 ? this.cues[activeIndex].startSec : -1;
+    const nextIndex =
+      activeIndex < 0 && this.cues.length
+        ? findNextCueIndex(this.cues, effectiveTime)
+        : -1;
+    const locateCueStartSec =
+      activeCueStartSec >= 0
+        ? activeCueStartSec
+        : nextIndex >= 0
+          ? this.cues[nextIndex].startSec
+          : -1;
     return {
       currentTime: this.video.currentTime,
       paused: this.video.paused,
       offsetSec: this.offsetSec,
-      activeIndex: findActiveCueIndex(this.cues, effectiveTime),
+      activeIndex,
+      activeCueStartSec,
+      effectiveTime,
+      locateCueStartSec,
       cueCount: this.cues.length,
     };
   }
@@ -178,6 +194,7 @@ class SubtitleRenderer {
 
   _onSeeked() {
     this.refresh();
+    this._emitState(true);
   }
 
   /** @param {boolean} force */

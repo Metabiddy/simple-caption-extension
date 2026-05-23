@@ -7,7 +7,8 @@ Load local **SRT** subtitle files onto videos in the browser. Works on YouTube, 
 - Overlay subtitles synced with video play, pause, and seek
 - **Side panel** cue list: search, click to jump, highlight current cue
 - **Delay offset**: type any value (seconds), nudge with ±0.1s / ±0.5s, or **Apply**
-- **Locate**: scroll the cue list to the subtitle currently on screen
+- **Locate**: scroll the cue list to the current subtitle using its **SRT timestamp** (shown above the list)
+- **Jump** (Bilibili mode off): seeks to `subtitle time + delay`
 - **Bilibili mode**: click a cue to **sync** subtitle timing to the current playback position (no video seek); turn off to jump the video on cue click
 
 ## Install (unpacked)
