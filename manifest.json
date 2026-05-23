@@ -3,7 +3,7 @@
   "name": "Caption",
   "version": "1.0.0",
   "description": "Load local SRT subtitles onto web videos with seek, sync, and delay controls.",
-  "permissions": ["activeTab", "scripting", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.bilibili.com/*",
@@ -27,6 +27,7 @@
       ],
       "js": [
         "src/shared/messages.js",
+        "src/shared/storage.js",
         "src/lib/srt-parser.js",
         "src/lib/subtitle-renderer.js",
         "src/content/content.js"

@@ -6,7 +6,9 @@ Load local **SRT** subtitle files onto videos in the browser. Works on YouTube, 
 
 - Overlay subtitles synced with video play, pause, and seek
 - **Side panel** cue list: search, click to jump, highlight current cue
-- **Delay offset**: adjust timing with ±0.1s / ±0.5s buttons
+- **Delay offset**: type any value (seconds), nudge with ±0.1s / ±0.5s, or **Apply**
+- **Locate**: scroll the cue list to the subtitle currently on screen
+- **Bilibili mode**: click a cue to **sync** subtitle timing to the current playback position (no video seek); turn off to jump the video on cue click
 
 ## Install (unpacked)
 
@@ -21,7 +23,18 @@ Load local **SRT** subtitle files onto videos in the browser. Works on YouTube, 
 2. Click the **Caption** extension icon → side panel opens
 3. **Load .srt** and pick your subtitle file
 4. Play the video — subtitles appear on the player
-5. Use the cue list to jump; use **Delay** buttons if audio and text are out of sync
+5. Use the cue list to jump (or enable **Bilibili mode** to sync by clicking a cue at the matching moment)
+6. Use **Delay** buttons for fine-tuning if audio and text are still out of sync
+
+### Bilibili mode
+
+When **on**, clicking a cue does **not** move the video. It sets the subtitle offset so that cue’s timestamp aligns with the current `currentTime` — useful when the site player and your SRT use different timelines. Subtitles still follow playback after sync.
+
+When **off** (default), clicking a cue seeks the video to that timestamp, and subtitles track playback automatically.
+
+### Persistence
+
+Loaded subtitles, delay offset, and Bilibili mode are saved in **local storage**. They survive page refresh and navigation to a new URL (until you click **Clear**).
 
 ### Delay semantics
 

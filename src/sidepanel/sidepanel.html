@@ -21,27 +21,48 @@
     <p id="status" class="status" role="status"></p>
   </section>
 
+  <section class="panel-section mode-section">
+    <div class="mode-row">
+      <label class="toggle-label" for="bilibiliModeToggle">
+        <span class="toggle-title">Bilibili mode</span>
+        <span class="toggle-desc" id="bilibiliModeHint">Click a cue to jump the video</span>
+      </label>
+      <input type="checkbox" id="bilibiliModeToggle" class="toggle-input" role="switch" aria-checked="false" />
+    </div>
+  </section>
+
   <section class="panel-section delay-section">
     <h2>Delay</h2>
     <p class="hint">Positive = subtitles appear later</p>
     <div class="delay-controls">
       <button type="button" class="btn btn-small" data-delta="-0.5">−0.5s</button>
       <button type="button" class="btn btn-small" data-delta="-0.1">−0.1s</button>
-      <span id="offsetDisplay" class="offset-display">0.0s</span>
+      <label class="offset-input-wrap">
+        <input type="number" id="offsetInput" class="offset-input" step="0.1" value="0" title="Delay in seconds" />
+        <span class="offset-unit">s</span>
+      </label>
       <button type="button" class="btn btn-small" data-delta="0.1">+0.1s</button>
       <button type="button" class="btn btn-small" data-delta="0.5">+0.5s</button>
     </div>
-    <button type="button" id="resetOffsetBtn" class="btn btn-ghost">Reset delay</button>
+    <div class="delay-actions">
+      <button type="button" id="resetOffsetBtn" class="btn btn-ghost">Reset delay</button>
+      <button type="button" id="applyOffsetBtn" class="btn btn-ghost">Apply</button>
+    </div>
   </section>
 
   <section class="panel-section cue-section">
-    <h2>Cues</h2>
+    <div class="cue-header">
+      <h2>Cues</h2>
+      <button type="button" id="locateCueBtn" class="btn btn-small" title="Scroll to current subtitle">Locate</button>
+    </div>
     <input type="search" id="searchInput" class="search" placeholder="Search subtitles…" />
     <p id="cueMeta" class="cue-meta"></p>
     <ul id="cueList" class="cue-list"></ul>
   </section>
 
   <script src="../shared/messages.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="../lib/srt-parser.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

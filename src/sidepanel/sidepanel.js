@@ -4,18 +4,27 @@
   const fileInput = document.getElementById('fileInput');
   const clearBtn = document.getElementById('clearBtn');
   const statusEl = document.getElementById('status');
-  const offsetDisplay = document.getElementById('offsetDisplay');
+  const offsetInput = document.getElementById('offsetInput');
   const resetOffsetBtn = document.getElementById('resetOffsetBtn');
+  const applyOffsetBtn = document.getElementById('applyOffsetBtn');
   const searchInput = document.getElementById('searchInput');
   const cueList = document.getElementById('cueList');
   const cueMeta = document.getElementById('cueMeta');
   const cueSection = document.querySelector('.cue-section');
+  const bilibiliModeToggle = document.getElementById('bilibiliModeToggle');
+  const bilibiliModeHint = document.getElementById('bilibiliModeHint');
+  const locateCueBtn = document.getElementById('locateCueBtn');
 
   /** @type {Array<{ index: number, startSec: number, endSec: number, preview: string }>} */
   let allCues = [];
   let offsetSec = 0;
+  let bilibiliMode = false;
   let activeIndex = -1;
   let lastScrolledIndex = -1;
+  let offsetInputFocused = false;
+
+  const HINT_NORMAL = 'Click a cue to jump the video';
+  const HINT_BILIBILI = 'Click a cue to sync subtitles to current playback (no seek)';
 
   async function getActiveTabId() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -48,13 +57,42 @@
     return `${m}:${String(r).padStart(2, '0')}`;
   }
 
-  function formatOffset(sec) {
-    const sign = sec > 0 ? '+' : '';
-    return `${sign}${sec.toFixed(1)}s`;
+  function syncOffsetInputFromState() {
+    if (offsetInputFocused) return;
+    const rounded = Math.round(offsetSec * 1000) / 1000;
+    offsetInput.value = String(rounded);
   }
 
-  function updateOffsetDisplay() {
-    offsetDisplay.textContent = formatOffset(offsetSec);
+  function parseOffsetInput() {
+    const raw = offsetInput.value.trim();
+    if (raw === '' || raw === '-' || raw === '+') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async function applyOffsetFromInput() {
+    const n = parseOffsetInput();
+    if (n === null) {
+      setStatus('Enter a valid delay in seconds.', true);
+      syncOffsetInputFromState();
+      return;
+    }
+    offsetSec = n;
+    syncOffsetInputFromState();
+    await sendToContent({ type: MSG.SUBTITLE_SET_OFFSET, offsetSec });
+  }
+
+  async function nudgeOffset(delta) {
+    const base = parseOffsetInput() ?? offsetSec;
+    offsetSec = Math.round((base + delta) * 1000) / 1000;
+    syncOffsetInputFromState();
+    await sendToContent({ type: MSG.SUBTITLE_SET_OFFSET, offsetSec });
+  }
+
+  function updateBilibiliModeUi() {
+    bilibiliModeToggle.checked = bilibiliMode;
+    bilibiliModeToggle.setAttribute('aria-checked', String(bilibiliMode));
+    bilibiliModeHint.textContent = bilibiliMode ? HINT_BILIBILI : HINT_NORMAL;
   }
 
   function getFilteredCues() {
@@ -105,8 +143,6 @@
 
       cueList.appendChild(li);
     }
-
-    scrollActiveIntoView();
   }
 
   function escapeHtml(str) {
@@ -115,22 +151,44 @@
     return div.innerHTML;
   }
 
-  function scrollActiveIntoView() {
-    if (activeIndex < 0 || activeIndex === lastScrolledIndex) return;
+  function scrollActiveIntoView(force) {
+    if (activeIndex < 0) {
+      setStatus('No active subtitle at current time.', true);
+      return;
+    }
+    if (!force && activeIndex === lastScrolledIndex) return;
+
     const activeEl = cueList.querySelector(`[data-index="${activeIndex}"]`);
     if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
       lastScrolledIndex = activeIndex;
+      setStatus(`Located cue #${activeIndex + 1}.`);
+    } else if (searchInput.value.trim()) {
+      setStatus('Current cue is hidden by search — clear search and try again.', true);
+    } else {
+      setStatus('Could not find current cue in list.', true);
     }
   }
 
+  function locateCurrentCue() {
+    lastScrolledIndex = -1;
+    highlightActive();
+    scrollActiveIntoView(true);
+  }
+
   function applyState(state) {
-    if (typeof state.offsetSec === 'number') {
+    if (typeof state.offsetSec === 'number' && !offsetInputFocused) {
       offsetSec = state.offsetSec;
-      updateOffsetDisplay();
+      syncOffsetInputFromState();
     }
     if (typeof state.activeIndex === 'number') {
+      const indexChanged = state.activeIndex !== activeIndex;
       activeIndex = state.activeIndex;
+      if (indexChanged) lastScrolledIndex = -1;
+    }
+    if (typeof state.bilibiliMode === 'boolean') {
+      bilibiliMode = state.bilibiliMode;
+      updateBilibiliModeUi();
     }
     let cuesChanged = false;
     if (Array.isArray(state.cues)) {
@@ -154,7 +212,6 @@
       const idx = parseInt(el.dataset.index, 10);
       el.classList.toggle('active', idx === activeIndex);
     });
-    scrollActiveIntoView();
   }
 
   fileInput.addEventListener('change', async () => {
@@ -172,30 +229,58 @@
     allCues = [];
     activeIndex = -1;
     offsetSec = 0;
-    updateOffsetDisplay();
+    syncOffsetInputFromState();
     renderCueList();
     setStatus('Cleared.');
   });
 
   document.querySelectorAll('[data-delta]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const delta = parseFloat(btn.dataset.delta);
-      offsetSec = Math.round((offsetSec + delta) * 10) / 10;
-      offsetSec = Math.max(-30, Math.min(30, offsetSec));
-      updateOffsetDisplay();
-      await sendToContent({ type: MSG.SUBTITLE_SET_OFFSET, offsetSec });
+    btn.addEventListener('click', () => {
+      nudgeOffset(parseFloat(btn.dataset.delta));
     });
   });
 
   resetOffsetBtn.addEventListener('click', async () => {
     offsetSec = 0;
-    updateOffsetDisplay();
+    syncOffsetInputFromState();
     await sendToContent({ type: MSG.SUBTITLE_SET_OFFSET, offsetSec: 0 });
+  });
+
+  applyOffsetBtn.addEventListener('click', () => {
+    applyOffsetFromInput();
+  });
+
+  offsetInput.addEventListener('focus', () => {
+    offsetInputFocused = true;
+  });
+
+  offsetInput.addEventListener('blur', () => {
+    offsetInputFocused = false;
+    applyOffsetFromInput();
+  });
+
+  offsetInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      offsetInput.blur();
+    }
   });
 
   searchInput.addEventListener('input', () => {
     lastScrolledIndex = -1;
     renderCueList();
+    highlightActive();
+  });
+
+  locateCueBtn.addEventListener('click', () => {
+    locateCurrentCue();
+  });
+
+  bilibiliModeToggle.addEventListener('change', async () => {
+    bilibiliMode = bilibiliModeToggle.checked;
+    updateBilibiliModeUi();
+    await sendToContent({ type: MSG.SUBTITLE_SET_BILIBILI_MODE, enabled: bilibiliMode });
+    setStatus(bilibiliMode ? 'Bilibili mode on — click a cue to sync.' : 'Bilibili mode off — click a cue to jump.');
   });
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -213,6 +298,61 @@
     }
   });
 
-  updateOffsetDisplay();
-  sendToContent({ type: MSG.SUBTITLE_GET_STATE });
+  function cuesFromParsed(parsed) {
+    return parsed.map((c) => ({
+      index: c.index,
+      startSec: c.startSec,
+      endSec: c.endSec,
+      preview: c.lines[0] || '',
+    }));
+  }
+
+  async function restoreSidepanelFromStorage() {
+    if (!globalThis.loadCaptionStorage) return false;
+
+    const saved = await loadCaptionStorage();
+    if (!saved?.srt) return false;
+
+    offsetSec = saved.offsetSec ?? 0;
+    bilibiliMode = saved.bilibiliMode ?? false;
+    syncOffsetInputFromState();
+    updateBilibiliModeUi();
+
+    try {
+      const { cues: parsed } = parseSrt(saved.srt);
+      allCues = cuesFromParsed(parsed);
+      renderCueList();
+      setStatus(`Restored ${allCues.length} cues from last session.`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.caption_offsetSec && !offsetInputFocused) {
+      const next = changes.caption_offsetSec.newValue;
+      if (typeof next === 'number') {
+        offsetSec = next;
+        syncOffsetInputFromState();
+      }
+    }
+    if (changes.caption_bilibiliMode) {
+      bilibiliMode = Boolean(changes.caption_bilibiliMode.newValue);
+      updateBilibiliModeUi();
+    }
+    if (changes.caption_srt?.newValue) {
+      restoreSidepanelFromStorage();
+    }
+    if (changes.caption_srt && changes.caption_srt.newValue === undefined) {
+      allCues = [];
+      renderCueList();
+    }
+  });
+
+  (async function init() {
+    await restoreSidepanelFromStorage();
+    await sendToContent({ type: MSG.SUBTITLE_GET_STATE });
+  })();
 })();

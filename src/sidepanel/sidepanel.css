@@ -42,6 +42,45 @@ body {
   color: #aaa;
 }
 
+.cue-section .cue-header h2 {
+  margin-bottom: 0;
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggle-label {
+  flex: 1;
+  cursor: pointer;
+}
+
+.toggle-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.toggle-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.35;
+}
+
+.toggle-input {
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
 .hint {
   margin: 0 0 8px;
   font-size: 11px;
@@ -122,12 +161,51 @@ body {
   gap: 6px;
 }
 
-.offset-display {
-  min-width: 52px;
-  text-align: center;
+.offset-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.offset-input {
+  width: 72px;
+  padding: 5px 6px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #111;
+  color: #7dd3fc;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #7dd3fc;
+  text-align: right;
+}
+
+.offset-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.offset-unit {
+  font-size: 11px;
+  color: #888;
+}
+
+.delay-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.cue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cue-header h2 {
+  margin: 0;
 }
 
 .search {

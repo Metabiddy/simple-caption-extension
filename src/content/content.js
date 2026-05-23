@@ -4,6 +4,7 @@
     SUBTITLE_CLEAR: 'SUBTITLE_CLEAR',
     SUBTITLE_SEEK: 'SUBTITLE_SEEK',
     SUBTITLE_SET_OFFSET: 'SUBTITLE_SET_OFFSET',
+    SUBTITLE_SET_BILIBILI_MODE: 'SUBTITLE_SET_BILIBILI_MODE',
     SUBTITLE_GET_STATE: 'SUBTITLE_GET_STATE',
     SUBTITLE_STATUS: 'SUBTITLE_STATUS',
     SUBTITLE_STATE: 'SUBTITLE_STATE',
@@ -14,8 +15,14 @@
   /** @type {Array<{ index: number, startSec: number, endSec: number, lines: string[] }>} */
   let cues = [];
   let offsetSec = 0;
+  let bilibiliMode = false;
+  /** @type {string | null} */
+  let cachedSrtText = null;
   /** @type {HTMLVideoElement | null} */
   let boundVideo = null;
+
+  let restoreAttempts = 0;
+  const MAX_RESTORE_ATTEMPTS = 120;
 
   function findActiveVideo() {
     const videos = [...document.querySelectorAll('video')];
@@ -35,6 +42,15 @@
     return boundVideo || v;
   }
 
+  function mountRendererIfReady() {
+    const video = findActiveVideo();
+    if (!video || cues.length === 0) return;
+    attachToVideo(video);
+    renderer.setCues(cues);
+    renderer.setOffset(offsetSec);
+    renderer.mount();
+  }
+
   function teardown() {
     if (renderer) {
       renderer.unmount();
@@ -42,7 +58,9 @@
     }
     boundVideo = null;
     cues = [];
+    cachedSrtText = null;
     offsetSec = 0;
+    bilibiliMode = false;
   }
 
   function attachToVideo(video) {
@@ -64,6 +82,15 @@
     }
   }
 
+  async function persistSettings() {
+    if (!cachedSrtText || !globalThis.saveCaptionStorage) return;
+    await saveCaptionStorage({
+      srt: cachedSrtText,
+      offsetSec,
+      bilibiliMode,
+    });
+  }
+
   function cuesPayload() {
     return cues.map((c) => ({
       index: c.index,
@@ -73,11 +100,15 @@
     }));
   }
 
+  function withMode(state) {
+    return { ...state, bilibiliMode, offsetSec };
+  }
+
   /** @param {object} state @param {boolean} [includeCues] */
   function broadcastState(state, includeCues) {
     const payload = {
       type: MSG.SUBTITLE_STATE,
-      ...state,
+      ...withMode(state),
     };
     if (includeCues || cues.length === 0) {
       payload.cues = cuesPayload();
@@ -94,36 +125,71 @@
     }).catch(() => {});
   }
 
-  function loadSrt(srtText) {
-    const video = getVideo();
-    if (!video) {
-      sendStatus(false, 'No video found on this page.');
-      return;
-    }
+  /**
+   * @param {string} srtText
+   * @param {{ resetOffset?: boolean, persist?: boolean, silent?: boolean }} [options]
+   */
+  function applySrt(srtText, options = {}) {
+    const { resetOffset = false, persist = true, silent = false } = options;
 
     try {
       const result = parseSrt(srtText);
       cues = result.cues;
-      offsetSec = 0;
-      attachToVideo(video);
-      renderer.setCues(cues);
-      renderer.setOffset(offsetSec);
-      renderer.mount();
-      sendStatus(true, null, cues.length);
-      broadcastState(renderer.getState(), true);
+      cachedSrtText = srtText;
+      if (resetOffset) offsetSec = 0;
+
+      mountRendererIfReady();
+
+      if (persist) persistSettings();
+
+      if (!silent) {
+        sendStatus(true, null, cues.length);
+      }
+
+      const video = getVideo();
+      broadcastState(
+        renderer
+          ? renderer.getState()
+          : {
+              currentTime: video ? video.currentTime : 0,
+              paused: video ? video.paused : true,
+              activeIndex: video
+                ? findActiveCueIndex(cues, video.currentTime - offsetSec)
+                : -1,
+              cueCount: cues.length,
+            },
+        true
+      );
+      return true;
     } catch (err) {
-      sendStatus(false, err instanceof Error ? err.message : String(err));
+      if (!silent) {
+        sendStatus(false, err instanceof Error ? err.message : String(err));
+      }
+      return false;
     }
   }
 
-  function clearSubtitles() {
+  function loadSrt(srtText) {
+    const hadVideo = Boolean(findActiveVideo());
+    const ok = applySrt(srtText, { resetOffset: true, persist: true });
+    if (!ok) return;
+    if (!hadVideo && !findActiveVideo()) {
+      sendStatus(true, null, cues.length);
+    }
+  }
+
+  async function clearSubtitles() {
     teardown();
+    if (globalThis.clearCaptionStorage) {
+      await clearCaptionStorage();
+    }
     sendStatus(true, null, 0);
     chrome.runtime.sendMessage({
       type: MSG.SUBTITLE_STATE,
       currentTime: 0,
       paused: true,
       offsetSec: 0,
+      bilibiliMode: false,
       activeIndex: -1,
       cueCount: 0,
       cues: [],
@@ -141,6 +207,39 @@
     broadcastState(renderer ? renderer.getState() : {});
   }
 
+  function syncCueToPlayback(startSec) {
+    const video = getVideo();
+    if (!video) {
+      sendStatus(false, 'No video found on this page.');
+      return;
+    }
+    offsetSec = Math.round((video.currentTime - startSec) * 1000) / 1000;
+    setOffset(offsetSec);
+  }
+
+  function handleCueClick(startSec) {
+    if (bilibiliMode) {
+      syncCueToPlayback(startSec);
+    } else {
+      seekTo(startSec);
+    }
+  }
+
+  function setBilibiliMode(enabled) {
+    bilibiliMode = Boolean(enabled);
+    persistSettings();
+    broadcastState(
+      renderer
+        ? renderer.getState()
+        : {
+            currentTime: getVideo()?.currentTime ?? 0,
+            paused: getVideo()?.paused ?? true,
+            activeIndex: -1,
+            cueCount: cues.length,
+          }
+    );
+  }
+
   function setOffset(sec) {
     offsetSec = Number(sec) || 0;
     if (renderer) {
@@ -150,11 +249,13 @@
       chrome.runtime.sendMessage({
         type: MSG.SUBTITLE_STATE,
         offsetSec,
+        bilibiliMode,
         activeIndex: -1,
         cueCount: cues.length,
-        cues: [],
+        cues: cues.length > 0 ? cuesPayload() : [],
       }).catch(() => {});
     }
+    persistSettings();
   }
 
   function replyState() {
@@ -169,10 +270,34 @@
       currentTime: video ? video.currentTime : 0,
       paused: video ? video.paused : true,
       offsetSec,
+      bilibiliMode,
       activeIndex: video ? findActiveCueIndex(cues, video.currentTime - offsetSec) : -1,
       cueCount: cues.length,
       cues: cuesPayload(),
     }).catch(() => {});
+  }
+
+  async function restoreFromStorage() {
+    if (!globalThis.loadCaptionStorage) return;
+
+    const saved = await loadCaptionStorage();
+    if (!saved?.srt) return;
+
+    offsetSec = saved.offsetSec ?? 0;
+    bilibiliMode = saved.bilibiliMode ?? false;
+
+    const video = findActiveVideo();
+    if (!video) {
+      applySrt(saved.srt, { resetOffset: false, persist: false, silent: true });
+      if (restoreAttempts < MAX_RESTORE_ATTEMPTS) {
+        restoreAttempts += 1;
+        setTimeout(restoreFromStorage, 500);
+      }
+      return;
+    }
+
+    restoreAttempts = 0;
+    applySrt(saved.srt, { resetOffset: false, persist: false, silent: true });
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -188,11 +313,15 @@
         sendResponse({ ok: true });
         break;
       case MSG.SUBTITLE_SEEK:
-        seekTo(message.startSec);
+        handleCueClick(message.startSec);
         sendResponse({ ok: true });
         break;
       case MSG.SUBTITLE_SET_OFFSET:
         setOffset(message.offsetSec);
+        sendResponse({ ok: true });
+        break;
+      case MSG.SUBTITLE_SET_BILIBILI_MODE:
+        setBilibiliMode(message.enabled);
         sendResponse({ ok: true });
         break;
       case MSG.SUBTITLE_GET_STATE:
@@ -208,14 +337,21 @@
 
   function onSpaNavigation() {
     const video = findActiveVideo();
-    if (!video) {
-      if (cues.length === 0) teardown();
+    if (!video) return;
+
+    if (cues.length > 0) {
+      if (video !== boundVideo || !renderer) {
+        attachToVideo(video);
+        renderer.setCues(cues);
+        renderer.setOffset(offsetSec);
+        renderer.mount();
+        broadcastState(renderer.getState(), true);
+      }
       return;
     }
-    if (video !== boundVideo && cues.length > 0) {
-      attachToVideo(video);
-      renderer.setCues(cues);
-      renderer.mount();
+
+    if (cachedSrtText && globalThis.loadCaptionStorage) {
+      restoreFromStorage();
     }
   }
 
@@ -232,4 +368,6 @@
 
   window.addEventListener('yt-navigate-finish', onSpaNavigation);
   window.addEventListener('popstate', onSpaNavigation);
+
+  restoreFromStorage();
 })();
