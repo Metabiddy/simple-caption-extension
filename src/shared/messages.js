@@ -1,0 +1,16 @@
+/** @typedef {'SUBTITLE_LOAD'|'SUBTITLE_CLEAR'|'SUBTITLE_SEEK'|'SUBTITLE_SET_OFFSET'|'SUBTITLE_GET_STATE'|'SUBTITLE_STATUS'|'SUBTITLE_STATE'} MessageType */
+
+const MSG = {
+  SUBTITLE_LOAD: 'SUBTITLE_LOAD',
+  SUBTITLE_CLEAR: 'SUBTITLE_CLEAR',
+  SUBTITLE_SEEK: 'SUBTITLE_SEEK',
+  SUBTITLE_SET_OFFSET: 'SUBTITLE_SET_OFFSET',
+  SUBTITLE_GET_STATE: 'SUBTITLE_GET_STATE',
+  SUBTITLE_STATUS: 'SUBTITLE_STATUS',
+  SUBTITLE_STATE: 'SUBTITLE_STATE',
+};
+
+// Export for modules that support it; also attach to global for content scripts.
+if (typeof globalThis !== 'undefined') {
+  globalThis.CAPTION_MSG = MSG;
+}

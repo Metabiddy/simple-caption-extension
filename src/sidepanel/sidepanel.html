@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Caption</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>Caption</h1>
+    <p class="subtitle">Local SRT subtitles for web video</p>
+  </header>
+
+  <section class="panel-section">
+    <label class="file-label">
+      <input type="file" id="fileInput" accept=".srt,text/plain" hidden />
+      <span class="btn btn-primary">Load .srt</span>
+    </label>
+    <button type="button" id="clearBtn" class="btn btn-secondary">Clear</button>
+    <p id="status" class="status" role="status"></p>
+  </section>
+
+  <section class="panel-section delay-section">
+    <h2>Delay</h2>
+    <p class="hint">Positive = subtitles appear later</p>
+    <div class="delay-controls">
+      <button type="button" class="btn btn-small" data-delta="-0.5">−0.5s</button>
+      <button type="button" class="btn btn-small" data-delta="-0.1">−0.1s</button>
+      <span id="offsetDisplay" class="offset-display">0.0s</span>
+      <button type="button" class="btn btn-small" data-delta="0.1">+0.1s</button>
+      <button type="button" class="btn btn-small" data-delta="0.5">+0.5s</button>
+    </div>
+    <button type="button" id="resetOffsetBtn" class="btn btn-ghost">Reset delay</button>
+  </section>
+
+  <section class="panel-section cue-section">
+    <h2>Cues</h2>
+    <input type="search" id="searchInput" class="search" placeholder="Search subtitles…" />
+    <p id="cueMeta" class="cue-meta"></p>
+    <ul id="cueList" class="cue-list"></ul>
+  </section>
+
+  <script src="../shared/messages.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

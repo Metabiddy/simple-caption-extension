@@ -1,0 +1,15 @@
+1
+00:00:01,000 --> 00:00:04,000
+Hello, this is a test subtitle.
+
+2
+00:00:05,000 --> 00:00:08,000
+Second line appears after five seconds.
+
+3
+00:00:10,000 --> 00:00:13,000
+Use the side panel to jump here.
+
+4
+00:00:15,000 --> 00:00:18,000
+Adjust delay if audio and text are out of sync.
